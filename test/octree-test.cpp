@@ -4,7 +4,7 @@
 #include <queue>
 #include <string>
 
-#include "../Octree.hpp"
+#include "Octree.hpp"
 
 namespace
 {

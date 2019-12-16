@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include <time.h>
 
-#include "../Octree.hpp"
+#include "Octree.hpp"
 #include "utils.h"
 
 /** Example for a templated descriptor computation
@@ -23,7 +23,7 @@ class SimpleDescriptor
     memset(&descriptor[0], 0, dim_);
 
     std::vector<uint32_t> neighbors;
-    std::vector<float> distances;
+    std::vector<double> distances;
 
     // template is needed to tell the compiler that radiusNeighbors is a method.
     oct.template radiusNeighbors<unibn::MaxDistance<PointT> >(query, radius_, neighbors, distances);
