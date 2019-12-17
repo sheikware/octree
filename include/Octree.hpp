@@ -165,18 +165,37 @@ struct OctreeParams
 class Octree
 {
  public:
-  Octree();
-  ~Octree();
+
+  class Octant
+  {
+   public:
+    inline Octant();
+    inline ~Octant();
+
+    bool isLeaf;
+
+    // bounding box of the octant needed for overlap and contains tests...
+    Eigen::Vector3d center;  // center
+    double extent;           // half of side-length
+
+    size_t start, end;  // start and end in succ_
+    size_t size;        // number of points
+
+    Octant* child[8];
+  };
+
+  inline Octree();
+  inline ~Octree();
 
   /** \brief initialize octree with all points **/
-  void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const OctreeParams& params = OctreeParams());
+  inline void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const OctreeParams& params = OctreeParams());
 
   /** \brief initialize octree only from pts that are inside indexes. **/
-  void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const std::vector<size_t>& indexes,
+  inline void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const std::vector<size_t>& indexes,
                   const OctreeParams& params = OctreeParams());
 
   /** \brief remove all data inside the octree. **/
-  void clear();
+  inline void clear();
 
   /** \brief radius neighbor queries where radius determines the maximal radius of reported indices of points in
    * resultIndices **/
@@ -194,25 +213,17 @@ class Octree
   template <typename Distance>
   bool findNeighbor(const Eigen::Vector3d& query, size_t& resultIndex, double minDistance = -1) const;
   
-
- protected:
-  class Octant
+  inline const Octant* root() const
   {
-   public:
-    Octant();
-    ~Octant();
+    return root_;
+  }
 
-    bool isLeaf;
-
-    // bounding box of the octant needed for overlap and contains tests...
-    Eigen::Vector3d center;  // center
-    double extent;   // half of side-length
-
-    size_t start, end;  // start and end in succ_
-    size_t size;        // number of points
-
-    Octant* child[8];
-  };
+  inline const std::vector<size_t> successors() const
+  {
+    return successors_;
+  }
+ protected:
+  
 
   // not copyable, not assignable ...
   Octree(Octree&);
@@ -232,7 +243,7 @@ class Octree
    *
    * \return  octant with children nodes.
    */
-  Octant* createOctant(const Eigen::Vector3d& center, double extent, size_t startIdx, size_t endIdx, size_t size);
+  inline Octant* createOctant(const Eigen::Vector3d& center, double extent, size_t startIdx, size_t endIdx, size_t size);
 
   /** @return true, if search finished, otherwise false. **/
   template <typename Distance>
