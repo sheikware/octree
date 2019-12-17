@@ -27,6 +27,8 @@
 #include <cstring>  // memset.
 #include <limits>
 #include <vector>
+#include <numeric>
+#include <Eigen/Core>
 
 // needed for gtest access to protected/private members ...
 namespace
@@ -38,54 +40,6 @@ namespace unibn
 {
 
 /**
- * Some traits to access coordinates regardless of the specific implementation of point
- * inspired by boost.geometry, which needs to be implemented by new points.
- *
- */
-namespace traits
-{
-
-template <typename PointT, int D>
-struct access
-{
-};
-
-template <class PointT>
-struct access<PointT, 0>
-{
-  static double get(const PointT& p)
-  {
-    return p.x;
-  }
-};
-
-template <class PointT>
-struct access<PointT, 1>
-{
-  static double get(const PointT& p)
-  {
-    return p.y;
-  }
-};
-
-template <class PointT>
-struct access<PointT, 2>
-{
-  static double get(const PointT& p)
-  {
-    return p.z;
-  }
-};
-}
-
-/** convenience function for access of point coordinates **/
-template <int D, typename PointT>
-inline double get(const PointT& p)
-{
-  return traits::access<PointT, D>::get(p);
-}
-
-/**
  * Some generic distances: Manhattan, (squared) Euclidean, and Maximum distance.
  *
  * A Distance has to implement the methods
@@ -94,21 +48,17 @@ inline double get(const PointT& p)
  * 3. sqr and sqrt of value to compute the correct radius if a comparison is performed using squared norms (see
  *L2Distance)...
  */
-template <typename PointT>
 struct L1Distance
 {
-  static inline double compute(const PointT& p, const PointT& q)
+  static inline double compute(const Eigen::Vector3d& p, const Eigen::Vector3d& q)
   {
-    double diff1 = get<0>(p) - get<0>(q);
-    double diff2 = get<1>(p) - get<1>(q);
-    double diff3 = get<2>(p) - get<2>(q);
-
-    return std::abs(diff1) + std::abs(diff2) + std::abs(diff3);
+    Eigen::Vector3d d = p - q;
+    return std::abs(d[0]) + std::abs(d[1]) + std::abs(d[2]);
   }
 
-  static inline double norm(double x, double y, double z)
+  static inline double norm(const Eigen::Vector3d& p)
   {
-    return std::abs(x) + std::abs(y) + std::abs(z);
+    return std::abs(p[0]) + std::abs(p[1]) + std::abs(p[2]);
   }
 
   static inline double sqr(double r)
@@ -122,21 +72,17 @@ struct L1Distance
   }
 };
 
-template <typename PointT>
 struct L2Distance
 {
-  static inline double compute(const PointT& p, const PointT& q)
+  static inline double compute(const Eigen::Vector3d& p, const Eigen::Vector3d& q)
   {
-    double diff1 = get<0>(p) - get<0>(q);
-    double diff2 = get<1>(p) - get<1>(q);
-    double diff3 = get<2>(p) - get<2>(q);
-
-    return std::pow(diff1, 2) + std::pow(diff2, 2) + std::pow(diff3, 2);
+    Eigen::Vector3d d = p - q;
+    return d.squaredNorm();
   }
 
-  static inline double norm(double x, double y, double z)
+  static inline double norm(const Eigen::Vector3d& p)
   {
-    return std::pow(x, 2) + std::pow(y, 2) + std::pow(z, 2);
+    return p.squaredNorm();
   }
 
   static inline double sqr(double r)
@@ -150,28 +96,17 @@ struct L2Distance
   }
 };
 
-template <typename PointT>
 struct MaxDistance
 {
-  static inline double compute(const PointT& p, const PointT& q)
+  static inline double compute(const Eigen::Vector3d& p, const Eigen::Vector3d& q)
   {
-    double diff1 = std::abs(get<0>(p) - get<0>(q));
-    double diff2 = std::abs(get<1>(p) - get<1>(q));
-    double diff3 = std::abs(get<2>(p) - get<2>(q));
-
-    double maximum = diff1;
-    if (diff2 > maximum) maximum = diff2;
-    if (diff3 > maximum) maximum = diff3;
-
-    return maximum;
+    Eigen::Vector3d d = (p - q).cwiseAbs();
+    return d.maxCoeff();
   }
 
-  static inline double norm(double x, double y, double z)
+  static inline double norm(const Eigen::Vector3d& p)
   {
-    double maximum = x;
-    if (y > maximum) maximum = y;
-    if (z > maximum) maximum = z;
-    return maximum;
+    return p.maxCoeff();
   }
 
   static inline double sqr(double r)
@@ -226,7 +161,6 @@ struct OctreeParams
  * \author behley
  */
 
-template <typename PointT, typename ContainerT = std::vector<PointT> >
 class Octree
 {
  public:
@@ -234,10 +168,10 @@ class Octree
   ~Octree();
 
   /** \brief initialize octree with all points **/
-  void initialize(const ContainerT& pts, const OctreeParams& params = OctreeParams());
+  void initialize(const Eigen::Matrix3Xd& pts, const OctreeParams& params = OctreeParams());
 
   /** \brief initialize octree only from pts that are inside indexes. **/
-  void initialize(const ContainerT& pts, const std::vector<uint32_t>& indexes,
+  void initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& indexes,
                   const OctreeParams& params = OctreeParams());
 
   /** \brief remove all data inside the octree. **/
@@ -246,18 +180,19 @@ class Octree
   /** \brief radius neighbor queries where radius determines the maximal radius of reported indices of points in
    * resultIndices **/
   template <typename Distance>
-  void radiusNeighbors(const PointT& query, double radius, std::vector<uint32_t>& resultIndices) const;
+  void radiusNeighbors(const Eigen::Vector3d& query, double radius, std::vector<size_t>& resultIndices) const;
 
   /** \brief radius neighbor queries with explicit (squared) distance computation. **/
   template <typename Distance>
-  void radiusNeighbors(const PointT& query, double radius, std::vector<uint32_t>& resultIndices,
+  void radiusNeighbors(const Eigen::Vector3d& query, double radius, std::vector<size_t>& resultIndices,
                        std::vector<double>& distances) const;
 
   /** \brief nearest neighbor queries. Using minDistance >= 0, we explicitly disallow self-matches.
-   * @return index of nearest neighbor n with Distance::compute(query, n) > minDistance and otherwise -1.
+   * @return index of nearest neighbor n with Distance::compute(query, n) > minDistance if return true
    **/
   template <typename Distance>
-  int32_t findNeighbor(const PointT& query, double minDistance = -1) const;
+  bool findNeighbor(const Eigen::Vector3d& query, size_t& resultIndex, double minDistance = -1) const;
+  
 
  protected:
   class Octant
@@ -269,11 +204,11 @@ class Octree
     bool isLeaf;
 
     // bounding box of the octant needed for overlap and contains tests...
-    double x, y, z;  // center
+    Eigen::Vector3d center;  // center
     double extent;   // half of side-length
 
-    uint32_t start, end;  // start and end in succ_
-    uint32_t size;        // number of points
+    size_t start, end;  // start and end in succ_
+    size_t size;        // number of points
 
     Octant* child[8];
   };
@@ -296,20 +231,20 @@ class Octree
    *
    * \return  octant with children nodes.
    */
-  Octant* createOctant(double x, double y, double z, double extent, uint32_t startIdx, uint32_t endIdx, uint32_t size);
+  Octant* createOctant(const Eigen::Vector3d& center, double extent, size_t startIdx, size_t endIdx, size_t size);
 
   /** @return true, if search finished, otherwise false. **/
   template <typename Distance>
-  bool findNeighbor(const Octant* octant, const PointT& query, double minDistance, double& maxDistance,
-                    int32_t& resultIndex) const;
+  bool findNeighbor(const Octant* octant, const Eigen::Vector3d& query, double minDistance, double& maxDistance,
+                    size_t& resultIndex) const;
 
   template <typename Distance>
-  void radiusNeighbors(const Octant* octant, const PointT& query, double radius, double sqrRadius,
-                       std::vector<uint32_t>& resultIndices) const;
+  void radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query, double radius, double sqrRadius,
+                       std::vector<size_t>& resultIndices) const;
 
   template <typename Distance>
-  void radiusNeighbors(const Octant* octant, const PointT& query, double radius, double sqrRadius,
-                       std::vector<uint32_t>& resultIndices, std::vector<double>& distances) const;
+  void radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query, double radius, double sqrRadius,
+                       std::vector<size_t>& resultIndices, std::vector<double>& distances) const;
 
   /** \brief test if search ball S(q,r) overlaps with octant
    *
@@ -320,7 +255,7 @@ class Octree
    * @return true, if search ball overlaps with octant, false otherwise.
    */
   template <typename Distance>
-  static bool overlaps(const PointT& query, double radius, double sqRadius, const Octant* o);
+  static bool overlaps(const Eigen::Vector3d& query, double radius, double sqRadius, const Octant* o);
 
   /** \brief test if search ball S(q,r) contains octant
    *
@@ -331,7 +266,7 @@ class Octree
    * @return true, if search ball overlaps with octant, false otherwise.
    */
   template <typename Distance>
-  static bool contains(const PointT& query, double sqRadius, const Octant* octant);
+  static bool contains(const Eigen::Vector3d& query, double sqRadius, const Octant* octant);
 
   /** \brief test if search ball S(q,r) is completely inside octant.
    *
@@ -342,177 +277,124 @@ class Octree
    * @return true, if search ball is completely inside the octant, false otherwise.
    */
   template <typename Distance>
-  static bool inside(const PointT& query, double radius, const Octant* octant);
+  static bool inside(const Eigen::Vector3d& query, double radius, const Octant* octant);
 
   OctreeParams params_;
   Octant* root_;
-  const ContainerT* data_;
+  Eigen::Matrix3Xd data_;
 
-  std::vector<uint32_t> successors_;  // single connected list of next point indices...
+  std::vector<size_t> successors_;  // single connected list of next point indices...
 
   friend class ::OctreeTest;
 };
 
-template <typename PointT, typename ContainerT>
-Octree<PointT, ContainerT>::Octant::Octant()
-    : isLeaf(true), x(0.0f), y(0.0f), z(0.0f), extent(0.0f), start(0), end(0), size(0)
+Octree::Octant::Octant()
+    : isLeaf(true), center(Eigen::Vector3d::Zero()), extent(0.0), start(0), end(0), size(0)
 {
   memset(&child, 0, 8 * sizeof(Octant*));
 }
 
-template <typename PointT, typename ContainerT>
-Octree<PointT, ContainerT>::Octant::~Octant()
+Octree::Octant::~Octant()
 {
-  for (uint32_t i = 0; i < 8; ++i) delete child[i];
+  for (size_t i = 0; i < 8; ++i) delete child[i];
 }
 
-template <typename PointT, typename ContainerT>
-Octree<PointT, ContainerT>::Octree()
-    : root_(0), data_(0)
+Octree::Octree()
+    : root_(0)
 {
 }
 
-template <typename PointT, typename ContainerT>
-Octree<PointT, ContainerT>::~Octree()
+Octree::~Octree()
 {
   delete root_;
-  if (params_.copyPoints) delete data_;
 }
 
-template <typename PointT, typename ContainerT>
-void Octree<PointT, ContainerT>::initialize(const ContainerT& pts, const OctreeParams& params)
+void Octree::initialize(const Eigen::Matrix3Xd& pts, const OctreeParams& params)
 {
   clear();
   params_ = params;
 
-  if (params_.copyPoints)
-    data_ = new ContainerT(pts);
-  else
-    data_ = &pts;
+  data_ = pts;
 
-  const uint32_t N = pts.size();
-  successors_ = std::vector<uint32_t>(N);
-
+  const size_t N = pts.cols();
+  successors_ = std::vector<size_t>(N);
+  std::iota(successors_.begin(), successors_.end(), 1.0);
+  
   // determine axis-aligned bounding box.
-  double min[3], max[3];
-  min[0] = get<0>(pts[0]);
-  min[1] = get<1>(pts[0]);
-  min[2] = get<2>(pts[0]);
-  max[0] = min[0];
-  max[1] = min[1];
-  max[2] = min[2];
+  Eigen::Vector3d aabb_min = data_.rowwise().minCoeff();
+  Eigen::Vector3d aabb_max = data_.rowwise().maxCoeff();
 
-  for (uint32_t i = 0; i < N; ++i)
-  {
-    // initially each element links simply to the following element.
-    successors_[i] = i + 1;
+  Eigen::Vector3d aabb_range = (aabb_max - aabb_min) * 0.5;
+  Eigen::Vector3d aabb_center = (aabb_max + aabb_min) * 0.5;
 
-    const PointT& p = pts[i];
-
-    if (get<0>(p) < min[0]) min[0] = get<0>(p);
-    if (get<1>(p) < min[1]) min[1] = get<1>(p);
-    if (get<2>(p) < min[2]) min[2] = get<2>(p);
-    if (get<0>(p) > max[0]) max[0] = get<0>(p);
-    if (get<1>(p) > max[1]) max[1] = get<1>(p);
-    if (get<2>(p) > max[2]) max[2] = get<2>(p);
-  }
-
-  double ctr[3] = {min[0], min[1], min[2]};
-
-  double maxextent = 0.5f * (max[0] - min[0]);
-  ctr[0] += maxextent;
-  for (uint32_t i = 1; i < 3; ++i)
-  {
-    double extent = 0.5f * (max[i] - min[i]);
-    ctr[i] += extent;
-    if (extent > maxextent) maxextent = extent;
-  }
-
-  root_ = createOctant(ctr[0], ctr[1], ctr[2], maxextent, 0, N - 1, N);
+  root_ = createOctant(aabb_center, aabb_range.maxCoeff(), 0, N - 1, N);
 }
 
-template <typename PointT, typename ContainerT>
-void Octree<PointT, ContainerT>::initialize(const ContainerT& pts, const std::vector<uint32_t>& indexes,
+void Octree::initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& indexes,
                                             const OctreeParams& params)
 {
   clear();
   params_ = params;
 
-  if (params_.copyPoints)
-    data_ = new ContainerT(pts);
-  else
-    data_ = &pts;
+  data_ = pts;
 
-  const uint32_t N = pts.size();
-  successors_ = std::vector<uint32_t>(N);
+  const size_t N = pts.cols();
+  successors_ = std::vector<size_t>(N);
 
   if (indexes.size() == 0) return;
 
   // determine axis-aligned bounding box.
-  uint32_t lastIdx = indexes[0];
-  double min[3], max[3];
-  min[0] = get<0>(pts[lastIdx]);
-  min[1] = get<1>(pts[lastIdx]);
-  min[2] = get<2>(pts[lastIdx]);
-  max[0] = min[0];
-  max[1] = min[1];
-  max[2] = min[2];
+  size_t lastIdx = indexes[0];
+  Eigen::Vector3d aabb_min;
+  Eigen::Vector3d aabb_max;
 
-  for (uint32_t i = 1; i < indexes.size(); ++i)
+  aabb_min[0] = data_.col(lastIdx)[0];
+  aabb_min[1] = data_.col(lastIdx)[1];
+  aabb_min[2] = data_.col(lastIdx)[2];
+  aabb_max = aabb_min;
+
+  for (size_t i = 1; i < indexes.size(); ++i)
   {
-    uint32_t idx = indexes[i];
+    size_t idx = indexes[i];
     // initially each element links simply to the following element.
     successors_[lastIdx] = idx;
 
-    const PointT& p = pts[idx];
+    const Eigen::Vector3d& p = data_.col(idx);
 
-    if (get<0>(p) < min[0]) min[0] = get<0>(p);
-    if (get<1>(p) < min[1]) min[1] = get<1>(p);
-    if (get<2>(p) < min[2]) min[2] = get<2>(p);
-    if (get<0>(p) > max[0]) max[0] = get<0>(p);
-    if (get<1>(p) > max[1]) max[1] = get<1>(p);
-    if (get<2>(p) > max[2]) max[2] = get<2>(p);
+    if (p[0] < aabb_min[0]) aabb_min[0] = p[0];
+    if (p[1] < aabb_min[1]) aabb_min[1] = p[1];
+    if (p[2] < aabb_min[2]) aabb_min[2] = p[2];
+    if (p[0] > aabb_max[0]) aabb_max[0] = p[0];
+    if (p[1] > aabb_max[1]) aabb_max[1] = p[1];
+    if (p[2] > aabb_max[2]) aabb_max[2] = p[2];
 
     lastIdx = idx;
   }
 
-  double ctr[3] = {min[0], min[1], min[2]};
+  Eigen::Vector3d aabb_range = (aabb_max - aabb_min) * 0.5;
+  Eigen::Vector3d aabb_center = (aabb_max + aabb_min) * 0.5;
 
-  double maxextent = 0.5f * (max[0] - min[0]);
-  ctr[0] += maxextent;
-  for (uint32_t i = 1; i < 3; ++i)
-  {
-    double extent = 0.5f * (max[i] - min[i]);
-    ctr[i] += extent;
-    if (extent > maxextent) maxextent = extent;
-  }
-
-  root_ = createOctant(ctr[0], ctr[1], ctr[2], maxextent, indexes[0], lastIdx, indexes.size());
+  root_ = createOctant(aabb_center, aabb_range.maxCoeff(), indexes[0], lastIdx, indexes.size());
 }
 
-template <typename PointT, typename ContainerT>
-void Octree<PointT, ContainerT>::clear()
+void Octree::clear()
 {
   delete root_;
-  if (params_.copyPoints) delete data_;
   root_ = 0;
-  data_ = 0;
+  data_.resize(3, 0);
   successors_.clear();
 }
 
-template <typename PointT, typename ContainerT>
-typename Octree<PointT, ContainerT>::Octant* Octree<PointT, ContainerT>::createOctant(double x, double y, double z,
-                                                                                      double extent, uint32_t startIdx,
-                                                                                      uint32_t endIdx, uint32_t size)
+typename Octree::Octant* Octree::createOctant(const Eigen::Vector3d& center,
+                                              double extent, size_t startIdx,
+                                              size_t endIdx, size_t size)
 {
   // For a leaf we don't have to change anything; points are already correctly linked or correctly reordered.
   Octant* octant = new Octant;
 
   octant->isLeaf = true;
 
-  octant->x = x;
-  octant->y = y;
-  octant->z = z;
+  octant->center = center;
   octant->extent = extent;
 
   octant->start = startIdx;
@@ -526,23 +408,22 @@ typename Octree<PointT, ContainerT>::Octant* Octree<PointT, ContainerT>::createO
   {
     octant->isLeaf = false;
 
-    const ContainerT& points = *data_;
-    std::vector<uint32_t> childStarts(8, 0);
-    std::vector<uint32_t> childEnds(8, 0);
-    std::vector<uint32_t> childSizes(8, 0);
+    std::vector<size_t> childStarts(8, 0);
+    std::vector<size_t> childEnds(8, 0);
+    std::vector<size_t> childSizes(8, 0);
 
     // re-link disjoint child subsets...
-    uint32_t idx = startIdx;
+    size_t idx = startIdx;
 
-    for (uint32_t i = 0; i < size; ++i)
+    for (size_t i = 0; i < size; ++i)
     {
-      const PointT& p = points[idx];
+      const Eigen::Vector3d& p = data_.col(idx);
 
       // determine Morton code for each point...
-      uint32_t mortonCode = 0;
-      if (get<0>(p) > x) mortonCode |= 1;
-      if (get<1>(p) > y) mortonCode |= 2;
-      if (get<2>(p) > z) mortonCode |= 4;
+      size_t mortonCode = 0;
+      if (p[0] > center[0]) mortonCode |= 1;
+      if (p[1] > center[1]) mortonCode |= 2;
+      if (p[2] > center[2]) mortonCode |= 4;
 
       // set child starts and update successors...
       if (childSizes[mortonCode] == 0)
@@ -558,16 +439,16 @@ typename Octree<PointT, ContainerT>::Octant* Octree<PointT, ContainerT>::createO
     // now, we can create the child nodes...
     double childExtent = 0.5f * extent;
     bool firsttime = true;
-    uint32_t lastChildIdx = 0;
-    for (uint32_t i = 0; i < 8; ++i)
+    size_t lastChildIdx = 0;
+    for (size_t i = 0; i < 8; ++i)
     {
       if (childSizes[i] == 0) continue;
 
-      double childX = x + factor[(i & 1) > 0] * extent;
-      double childY = y + factor[(i & 2) > 0] * extent;
-      double childZ = z + factor[(i & 4) > 0] * extent;
+      Eigen::Vector3d child_center(center[0] + factor[(i & 1) > 0] * extent,
+                                   center[1] + factor[(i & 2) > 0] * extent,
+                                   center[2] + factor[(i & 4) > 0] * extent);
 
-      octant->child[i] = createOctant(childX, childY, childZ, childExtent, childStarts[i], childEnds[i], childSizes[i]);
+      octant->child[i] = createOctant(child_center, childExtent, childStarts[i], childEnds[i], childSizes[i]);
 
       if (firsttime)
         octant->start = octant->child[i]->start;
@@ -584,18 +465,16 @@ typename Octree<PointT, ContainerT>::Octant* Octree<PointT, ContainerT>::createO
   return octant;
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const PointT& query, double radius,
-                                                 double sqrRadius, std::vector<uint32_t>& resultIndices) const
+void Octree::radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query, double radius,
+                             double sqrRadius, std::vector<size_t>& resultIndices) const
 {
-  const ContainerT& points = *data_;
 
   // if search ball S(q,r) contains octant, simply add point indexes.
   if (contains<Distance>(query, sqrRadius, octant))
   {
-    uint32_t idx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
       resultIndices.push_back(idx);
       idx = successors_[idx];
@@ -606,10 +485,10 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
 
   if (octant->isLeaf)
   {
-    uint32_t idx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
-      const PointT& p = points[idx];
+      const Eigen::Vector3d& p = data_.col(idx);
       double dist = Distance::compute(query, p);
       if (dist < sqrRadius) resultIndices.push_back(idx);
       idx = successors_[idx];
@@ -619,7 +498,7 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
   }
 
   // check whether child nodes are in range.
-  for (uint32_t c = 0; c < 8; ++c)
+  for (size_t c = 0; c < 8; ++c)
   {
     if (octant->child[c] == 0) continue;
     if (!overlaps<Distance>(query, radius, sqrRadius, octant->child[c])) continue;
@@ -627,22 +506,19 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
   }
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const PointT& query, double radius,
-                                                 double sqrRadius, std::vector<uint32_t>& resultIndices,
-                                                 std::vector<double>& distances) const
+void Octree::radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query, double radius,
+                             double sqrRadius, std::vector<size_t>& resultIndices,
+                             std::vector<double>& distances) const
 {
-  const ContainerT& points = *data_;
-
   // if search ball S(q,r) contains octant, simply add point indexes and compute squared distances.
   if (contains<Distance>(query, sqrRadius, octant))
   {
-    uint32_t idx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
       resultIndices.push_back(idx);
-      distances.push_back(Distance::compute(query, points[idx]));
+      distances.push_back(Distance::compute(query, data_.col(idx)));
       idx = successors_[idx];
     }
 
@@ -651,10 +527,10 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
 
   if (octant->isLeaf)
   {
-    uint32_t idx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
-      const PointT& p = points[idx];
+      const Eigen::Vector3d& p = data_.col(idx);
       double dist = Distance::compute(query, p);
       if (dist < sqrRadius)
       {
@@ -668,7 +544,7 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
   }
 
   // check whether child nodes are in range.
-  for (uint32_t c = 0; c < 8; ++c)
+  for (size_t c = 0; c < 8; ++c)
   {
     if (octant->child[c] == 0) continue;
     if (!overlaps<Distance>(query, radius, sqrRadius, octant->child[c])) continue;
@@ -676,10 +552,9 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const Octant* octant, const Poi
   }
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-void Octree<PointT, ContainerT>::radiusNeighbors(const PointT& query, double radius,
-                                                 std::vector<uint32_t>& resultIndices) const
+void Octree::radiusNeighbors(const Eigen::Vector3d& query, double radius,
+                             std::vector<size_t>& resultIndices) const
 {
   resultIndices.clear();
   if (root_ == 0) return;
@@ -688,11 +563,10 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const PointT& query, double rad
   radiusNeighbors<Distance>(root_, query, radius, sqrRadius, resultIndices);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-void Octree<PointT, ContainerT>::radiusNeighbors(const PointT& query, double radius,
-                                                 std::vector<uint32_t>& resultIndices,
-                                                 std::vector<double>& distances) const
+void Octree::radiusNeighbors(const Eigen::Vector3d& query, double radius,
+                             std::vector<size_t>& resultIndices,
+                             std::vector<double>& distances) const
 {
   resultIndices.clear();
   distances.clear();
@@ -702,25 +576,18 @@ void Octree<PointT, ContainerT>::radiusNeighbors(const PointT& query, double rad
   radiusNeighbors<Distance>(root_, query, radius, sqrRadius, resultIndices, distances);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-bool Octree<PointT, ContainerT>::overlaps(const PointT& query, double radius, double sqRadius, const Octant* o)
+bool Octree::overlaps(const Eigen::Vector3d& query, double radius, double sqRadius, const Octant* o)
 {
   // we exploit the symmetry to reduce the test to testing if its inside the Minkowski sum around the positive quadrant.
-  double x = get<0>(query) - o->x;
-  double y = get<1>(query) - o->y;
-  double z = get<2>(query) - o->z;
-
-  x = std::abs(x);
-  y = std::abs(y);
-  z = std::abs(z);
+  Eigen::Vector3d d = (query - o->center).cwiseAbs();
 
   double maxdist = radius + o->extent;
 
   // Completely outside, since q' is outside the relevant area.
-  if (x > maxdist || y > maxdist || z > maxdist) return false;
+  if (d[0] > maxdist || d[1] > maxdist || d[2] > maxdist) return false;
 
-  int32_t num_less_extent = (x < o->extent) + (y < o->extent) + (z < o->extent);
+  int32_t num_less_extent = (d[0] < o->extent) + (d[1] < o->extent) + (d[2] < o->extent);
 
   // Checking different cases:
 
@@ -728,61 +595,46 @@ bool Octree<PointT, ContainerT>::overlaps(const PointT& query, double radius, do
   if (num_less_extent > 1) return true;
 
   // b. checking the corner region && edge region.
-  x = std::max(x - o->extent, 0.0);
-  y = std::max(y - o->extent, 0.0);
-  z = std::max(z - o->extent, 0.0);
+  d[0] = std::max(d[0] - o->extent, 0.0);
+  d[1] = std::max(d[1] - o->extent, 0.0);
+  d[2] = std::max(d[2] - o->extent, 0.0);
 
-  return (Distance::norm(x, y, z) < sqRadius);
+  return (Distance::norm(d) < sqRadius);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-bool Octree<PointT, ContainerT>::contains(const PointT& query, double sqRadius, const Octant* o)
+bool Octree::contains(const Eigen::Vector3d& query, double sqRadius, const Octant* o)
 {
   // we exploit the symmetry to reduce the test to test
   // whether the farthest corner is inside the search ball.
-  double x = get<0>(query) - o->x;
-  double y = get<1>(query) - o->y;
-  double z = get<2>(query) - o->z;
-
-  x = std::abs(x);
-  y = std::abs(y);
-  z = std::abs(z);
+  Eigen::Vector3d d = (query - o->center).cwiseAbs();
   // reminder: (x, y, z) - (-e, -e, -e) = (x, y, z) + (e, e, e)
-  x += o->extent;
-  y += o->extent;
-  z += o->extent;
-
-  return (Distance::norm(x, y, z) < sqRadius);
+  d = d.array() + o->extent;
+  
+  return (Distance::norm(d) < sqRadius);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-int32_t Octree<PointT, ContainerT>::findNeighbor(const PointT& query, double minDistance) const
+bool Octree::findNeighbor(const Eigen::Vector3d& query, size_t& resultIndex, double minDistance) const
 {
   double maxDistance = std::numeric_limits<double>::infinity();
-  int32_t resultIndex = -1;
-  findNeighbor<Distance>(root_, query, minDistance, maxDistance, resultIndex);
-
-  return resultIndex;
+  return findNeighbor<Distance>(root_, query, minDistance, maxDistance, resultIndex);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-bool Octree<PointT, ContainerT>::findNeighbor(const Octant* octant, const PointT& query, double minDistance,
-                                              double& maxDistance, int32_t& resultIndex) const
+bool Octree::findNeighbor(const Octant* octant, const Eigen::Vector3d& query, double minDistance,
+                          double& maxDistance, size_t& resultIndex) const
 {
-  const ContainerT& points = *data_;
   // 1. first descend to leaf and check in leafs points.
   if (octant->isLeaf)
   {
-    uint32_t idx = octant->start;
+    size_t idx = octant->start;
     double sqrMaxDistance = Distance::sqr(maxDistance);
     double sqrMinDistance = (minDistance < 0) ? minDistance : Distance::sqr(minDistance);
 
-    for (uint32_t i = 0; i < octant->size; ++i)
+    for (size_t i = 0; i < octant->size; ++i)
     {
-      const PointT& p = points[idx];
+      const Eigen::Vector3d& p = data_.col(idx);
       double dist = Distance::compute(query, p);
       if (dist > sqrMinDistance && dist < sqrMaxDistance)
       {
@@ -797,10 +649,10 @@ bool Octree<PointT, ContainerT>::findNeighbor(const Octant* octant, const PointT
   }
 
   // determine Morton code for each point...
-  uint32_t mortonCode = 0;
-  if (get<0>(query) > octant->x) mortonCode |= 1;
-  if (get<1>(query) > octant->y) mortonCode |= 2;
-  if (get<2>(query) > octant->z) mortonCode |= 4;
+  size_t mortonCode = 0;
+  if (query[0] > octant->center[0]) mortonCode |= 1;
+  if (query[1] > octant->center[1]) mortonCode |= 2;
+  if (query[2] > octant->center[2]) mortonCode |= 4;
 
   if (octant->child[mortonCode] != 0)
   {
@@ -811,7 +663,7 @@ bool Octree<PointT, ContainerT>::findNeighbor(const Octant* octant, const PointT
   double sqrMaxDistance = Distance::sqr(maxDistance);
 
   // 3. check adjacent octants for overlap and check these if necessary.
-  for (uint32_t c = 0; c < 8; ++c)
+  for (size_t c = 0; c < 8; ++c)
   {
     if (c == mortonCode) continue;
     if (octant->child[c] == 0) continue;
@@ -824,23 +676,17 @@ bool Octree<PointT, ContainerT>::findNeighbor(const Octant* octant, const PointT
   return inside<Distance>(query, maxDistance, octant);
 }
 
-template <typename PointT, typename ContainerT>
 template <typename Distance>
-bool Octree<PointT, ContainerT>::inside(const PointT& query, double radius, const Octant* octant)
+bool Octree::inside(const Eigen::Vector3d& query, double radius, const Octant* octant)
 {
   // we exploit the symmetry to reduce the test to test
   // whether the farthest corner is inside the search ball.
-  double x = get<0>(query) - octant->x;
-  double y = get<1>(query) - octant->y;
-  double z = get<2>(query) - octant->z;
-
-  x = std::abs(x) + radius;
-  y = std::abs(y) + radius;
-  z = std::abs(z) + radius;
-
-  if (x > octant->extent) return false;
-  if (y > octant->extent) return false;
-  if (z > octant->extent) return false;
+  Eigen::Vector3d d = (query - octant->center).cwiseAbs();
+  d = d.array() + radius;
+  
+  if (d[0] > octant->extent) return false;
+  if (d[1] > octant->extent) return false;
+  if (d[2] > octant->extent) return false;
 
   return true;
 }

@@ -9,25 +9,24 @@
  * \author behley
  */
 
-template <class PointT>
 class SimpleDescriptor
 {
  public:
-  SimpleDescriptor(float r, uint32_t dim) : radius_(r), dim_(dim)
+  SimpleDescriptor(double r, size_t dim) : radius_(r), dim_(dim)
   {
   }
 
-  void compute(const PointT& query, const std::vector<PointT>& pts, const unibn::Octree<PointT>& oct,
-               std::vector<float>& descriptor)
+  void compute(const Eigen::Vector3d& query, const Eigen::Matrix3Xd& pts, const unibn::Octree& oct,
+               std::vector<double>& descriptor)
   {
     memset(&descriptor[0], 0, dim_);
 
-    std::vector<uint32_t> neighbors;
+    std::vector<size_t> neighbors;
     std::vector<double> distances;
 
     // template is needed to tell the compiler that radiusNeighbors is a method.
-    oct.template radiusNeighbors<unibn::MaxDistance<PointT> >(query, radius_, neighbors, distances);
-    for (uint32_t i = 0; i < neighbors.size(); ++i) descriptor[distances[i] / radius_ * dim_] += 1;
+    oct.template radiusNeighbors<unibn::MaxDistance>(query, radius_, neighbors, distances);
+    for (size_t i = 0; i < neighbors.size(); ++i) descriptor[distances[i] / radius_ * dim_] += 1;
   }
 
   uint32_t dim() const
@@ -36,18 +35,8 @@ class SimpleDescriptor
   }
 
  protected:
-  float radius_;
-  uint32_t dim_;
-};
-
-class Point3f
-{
- public:
-  Point3f(float x, float y, float z) : x(x), y(y), z(z)
-  {
-  }
-
-  float x, y, z;
+  double radius_;
+  size_t dim_;
 };
 
 int main(int argc, char** argv)
@@ -59,8 +48,8 @@ int main(int argc, char** argv)
   }
   std::string filename = argv[1];
 
-  std::vector<Point3f> points;
-  readPoints<Point3f>(filename, points);
+  Eigen::Matrix3Xd points;
+  readPoints(filename, points);
   std::cout << "Read " << points.size() << " points." << std::endl;
   if (points.size() == 0)
   {
@@ -71,17 +60,17 @@ int main(int argc, char** argv)
   int64_t begin, end;
 
   // initializing the Octree with points from point cloud.
-  unibn::Octree<Point3f> octree;
+  unibn::Octree octree;
   unibn::OctreeParams params;
   octree.initialize(points);
 
-  SimpleDescriptor<Point3f> desc(0.5, 5);
-  std::vector<float> values(desc.dim());
+  SimpleDescriptor desc(0.5, 5);
+  std::vector<double> values(desc.dim());
   // performing descriptor computations for each point in point cloud
   begin = clock();
-  for (uint32_t i = 0; i < points.size(); ++i)
+  for (size_t i = 0; i < points.size(); ++i)
   {
-    desc.compute(points[i], points, octree, values);
+    desc.compute(points.col(i), points, octree, values);
   }
   end = clock();
   double search_time = ((double)(end - begin) / CLOCKS_PER_SEC);

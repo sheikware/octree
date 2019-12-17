@@ -5,14 +5,18 @@
 #include <string>
 #include <boost/lexical_cast.hpp>
 #include <boost/tokenizer.hpp>
+#include <vector>
+#include <Eigen/Core>
 
-template <typename PointT, typename ContainerT>
-void readPoints(const std::string& filename, ContainerT& points)
+void readPoints(const std::string& filename, Eigen::Matrix3Xd& points)
 {
   std::ifstream in(filename.c_str());
   std::string line;
   boost::char_separator<char> sep(" ");
   // read point cloud from "freiburg format"
+  
+  std::vector<Eigen::Vector3d> pts;
+  
   while (!in.eof())
   {
     std::getline(in, line);
@@ -22,13 +26,18 @@ void readPoints(const std::string& filename, ContainerT& points)
     std::vector<std::string> tokens(tokenizer.begin(), tokenizer.end());
 
     if (tokens.size() != 6) continue;
-    float x = boost::lexical_cast<float>(tokens[3]);
-    float y = boost::lexical_cast<float>(tokens[4]);
-    float z = boost::lexical_cast<float>(tokens[5]);
+    double x = boost::lexical_cast<double>(tokens[3]);
+    double y = boost::lexical_cast<double>(tokens[4]);
+    double z = boost::lexical_cast<double>(tokens[5]);
 
-    points.push_back(PointT(x, y, z));
+    pts.push_back(Eigen::Vector3d(x, y, z));
   }
 
+  points.resize(3, pts.size());
+  for (size_t i = 0; i < pts.size(); i++)
+  {
+    points.col(i) = pts[i];
+  }
   in.close();
 }
 

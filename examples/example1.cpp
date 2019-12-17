@@ -10,16 +10,6 @@
  * \author behley
  */
 
-class Point3f
-{
- public:
-  Point3f(float x, float y, float z) : x(x), y(y), z(z)
-  {
-  }
-
-  float x, y, z;
-};
-
 int main(int argc, char** argv)
 {
   if (argc < 2)
@@ -29,10 +19,10 @@ int main(int argc, char** argv)
   }
   std::string filename = argv[1];
 
-  std::vector<Point3f> points;
-  readPoints<Point3f>(filename, points);
-  std::cout << "Read " << points.size() << " points." << std::endl;
-  if (points.size() == 0)
+  Eigen::Matrix3Xd points;
+  readPoints(filename, points);
+  std::cout << "Read " << points.cols() << " points." << std::endl;
+  if (points.cols() == 0)
   {
     std::cerr << "Empty point cloud." << std::endl;
     return -1;
@@ -41,28 +31,28 @@ int main(int argc, char** argv)
   int64_t begin, end;
 
   // initializing the Octree with points from point cloud.
-  unibn::Octree<Point3f> octree;
+  unibn::Octree octree;
   unibn::OctreeParams params;
   octree.initialize(points);
 
   // radiusNeighbors returns indexes to neighboring points.
-  std::vector<uint32_t> results;
-  const Point3f& q = points[0];
-  octree.radiusNeighbors<unibn::L2Distance<Point3f> >(q, 0.2f, results);
-  std::cout << results.size() << " radius neighbors (r = 0.2m) found for (" << q.x << ", " << q.y << "," << q.z << ")"
+  std::vector<size_t> results;
+  const Eigen::Vector3d& q = points.col(0);
+  octree.radiusNeighbors<unibn::L2Distance>(q, 0.2f, results);
+  std::cout << results.size() << " radius neighbors (r = 0.2m) found for (" << q[0] << ", " << q[1] << "," << q[2] << ")"
             << std::endl;
-  for (uint32_t i = 0; i < results.size(); ++i)
+  for (size_t i = 0; i < results.size(); ++i)
   {
-    const Point3f& p = points[results[i]];
-    std::cout << "  " << results[i] << ": (" << p.x << ", " << p.y << ", " << p.z << ") => "
-              << std::sqrt(unibn::L2Distance<Point3f>::compute(p, q)) << std::endl;
+    const Eigen::Vector3d& p = points.col(results[i]);
+    std::cout << "  " << results[i] << ": (" << p[0] << ", " << p[1] << ", " << p[2] << ") => "
+              << std::sqrt(unibn::L2Distance::compute(p, q)) << std::endl;
   }
 
   // performing queries for each point in point cloud
   begin = clock();
-  for (uint32_t i = 0; i < points.size(); ++i)
+  for (size_t i = 0; i < points.cols(); ++i)
   {
-    octree.radiusNeighbors<unibn::L2Distance<Point3f> >(points[i], 0.5f, results);
+    octree.radiusNeighbors<unibn::L2Distance>(points.col(i), 0.5f, results);
   }
   end = clock();
   double search_time = ((double)(end - begin) / CLOCKS_PER_SEC);

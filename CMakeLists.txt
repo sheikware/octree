@@ -15,13 +15,18 @@ endif()
 set(INSTALL_INCLUDE_DIR "include")
 set(INSTALL_CMAKE_DIR "lib${LIB_SUFFIX}/cmake/octree")
 
+find_package(Eigen3 REQUIRED)
+
 # Define octree lib (header-only)
 add_library(octree INTERFACE)
 target_include_directories(octree
     INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${INSTALL_INCLUDE_DIR}>)
-
+target_link_libraries(octree INTERFACE
+    Eigen3::Eigen
+    )
+    
 install(TARGETS octree
         EXPORT octreeTargets)
 
@@ -44,18 +49,21 @@ if(Boost_FOUND)
   target_link_libraries(example1
     octree::octree
     Boost::boost
+    Eigen3::Eigen
     )
     
   ADD_EXECUTABLE(example2 examples/example2.cpp)
   target_link_libraries(example2
     octree::octree
     Boost::boost
+    Eigen3::Eigen
     )
     
   ADD_EXECUTABLE(example3 examples/example3.cpp)
   target_link_libraries(example3
     octree::octree
     Boost::boost
+    Eigen3::Eigen
     )
 endif()
 

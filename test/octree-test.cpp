@@ -9,38 +9,25 @@
 namespace
 {
 
-class Point3f
-{
- public:
-  Point3f(float x, float y, float z) : x(x), y(y), z(z)
-  {
-  }
-
-  float x, y, z;
-};
-
-// simple bruteforce search.
-template <typename PointT>
 class NaiveNeighborSearch
 {
  public:
-  void initialize(const std::vector<PointT>& points)
+  void initialize(const Eigen::Matrix3Xd& points)
   {
-    data_ = &points;
+    data_ = points;
   }
 
   template <typename Distance>
-  uint32_t findNeighbor(const PointT& query, float minDistance = -1.0f)
+  bool findNeighbor(const Eigen::Vector3d& query, size_t& resultIndex, double minDistance = -1.0)
   {
-    const std::vector<PointT>& pts = *data_;
-    if (pts.size() == 0) return -1;
+    if (data_.cols() == 0) return false;
 
-    float maxDistance = std::numeric_limits<float>::infinity();
-    float sqrMinDistance = (minDistance < 0) ? minDistance : Distance::sqr(minDistance);
-    uint32_t resultIndex = -1;
-    for (uint32_t i = 0; i < pts.size(); ++i)
+    double maxDistance = std::numeric_limits<double>::infinity();
+    double sqrMinDistance = (minDistance < 0) ? minDistance : Distance::sqr(minDistance);
+    resultIndex = std::numeric_limits<size_t>::max();
+    for (size_t i = 0; i < data_.cols(); ++i)
     {
-      float dist = Distance::compute(query, pts[i]);
+      double dist = Distance::compute(query, data_.col(i));
       if ((dist > sqrMinDistance) && (dist < maxDistance))
       {
         maxDistance = dist;
@@ -48,19 +35,18 @@ class NaiveNeighborSearch
       }
     }
 
-    return resultIndex;
+    return true;
   }
 
   template <typename Distance>
-  void radiusNeighbors(const PointT& query, float radius, std::vector<uint32_t>& resultIndices)
+  void radiusNeighbors(const Eigen::Vector3d& query, double radius, std::vector<size_t>& resultIndices)
   {
-    const std::vector<PointT>& pts = *data_;
     resultIndices.clear();
-    float sqrRadius = Distance::sqr(radius);
+    double sqrRadius = Distance::sqr(radius);
 
-    for (uint32_t i = 0; i < pts.size(); ++i)
+    for (size_t i = 0; i < data_.cols(); ++i)
     {
-      if (Distance::compute(query, pts[i]) < sqrRadius)
+      if (Distance::compute(query, data_.col(i)) < sqrRadius)
       {
         resultIndices.push_back(i);
       }
@@ -68,70 +54,63 @@ class NaiveNeighborSearch
   }
 
  protected:
-  const std::vector<PointT>* data_;
+  Eigen::Matrix3Xd data_;
 };
 
 // The fixture for testing class Foo.
 class OctreeTest : public ::testing::Test
 {
  public:
-  typedef unibn::Octree<Point3f>::Octant Octant;
+  typedef unibn::Octree::Octant Octant;
 
  protected:
   // helper methods to access the protected parts of octree for consistency
   // checks.
-  template <typename PointT>
-  const typename unibn::Octree<PointT>::Octant* getRoot(const unibn::Octree<PointT>& oct)
+  const typename unibn::Octree::Octant* getRoot(const unibn::Octree& oct)
   {
     return oct.root_;
   }
 
-  template <typename PointT>
-  const std::vector<uint32_t>& getSuccessors(const unibn::Octree<PointT>& oct)
+  const std::vector<size_t>& getSuccessors(const unibn::Octree& oct)
   {
     return oct.successors_;
   }
 
   template <typename Distance>
-  bool overlaps(const Point3f& query, float radius, float sqRadius, const Octant* o)
+  bool overlaps(const Eigen::Vector3d& query, double radius, double sqRadius, const Octant* o)
   {
-    return unibn::Octree<Point3f>::template overlaps<Distance>(query, radius, sqRadius, o);
+    return unibn::Octree::template overlaps<Distance>(query, radius, sqRadius, o);
   }
 };
 
-template <typename PointT>
-void randomPoints(std::vector<PointT>& pts, uint32_t N, uint32_t seed = 0)
+void randomPoints(Eigen::Matrix3Xd& pts, size_t N, uint32_t seed = 0)
 {
   boost::mt11213b mtwister(seed);
   boost::uniform_01<> gen;
-  pts.clear();
-  pts.reserve(N);
+  pts.resize(3, N);
   // generate N random points in [-5.0,5.0] x [-5.0,5.0] x [-5.0,5.0]...
-  for (uint32_t i = 0; i < N; ++i)
+  for (size_t i = 0; i < N; ++i)
   {
-    float x = 10.0f * gen(mtwister) - 5.0f;
-    float y = 10.0f * gen(mtwister) - 5.0f;
-    float z = 10.0f * gen(mtwister) - 5.0f;
-
-    pts.push_back(Point3f(x, y, z));
+    Eigen::Vector3d p(10.0 * gen(mtwister) - 5.0, 10.0 * gen(mtwister) - 5.0, 10.0 * gen(mtwister) - 5.0);
+    pts.col(i) = p;
   }
 }
 
 TEST_F(OctreeTest, Initialize)
 {
 
-  uint32_t N = 1000;
+  size_t N = 1000;
   unibn::OctreeParams params;
   params.bucketSize = 16;
 
-  unibn::Octree<Point3f> oct;
+  unibn::Octree oct;
 
   const Octant* root = getRoot(oct);
-  const std::vector<uint32_t>& successors = getSuccessors(oct);
+  const std::vector<size_t>& successors = getSuccessors(oct);
 
   ASSERT_EQ(0, root);
 
-  std::vector<Point3f> points;
+  Eigen::Matrix3Xd points;
   randomPoints(points, N, 1337);
 
   oct.initialize(points, params);
@@ -142,9 +121,9 @@ TEST_F(OctreeTest, Initialize)
   ASSERT_EQ(true, (root != 0));
   ASSERT_EQ(N, successors.size());
 
-  std::vector<uint32_t> elementCount(N, 0);
-  uint32_t idx = root->start;
-  for (uint32_t i = 0; i < N; ++i)
+  std::vector<size_t> elementCount(N, 0);
+  size_t idx = root->start;
+  for (size_t i = 0; i < N; ++i)
   {
     ASSERT_LT(idx, N);
     ASSERT_LE(successors[idx], N);
@@ -154,7 +133,7 @@ TEST_F(OctreeTest, Initialize)
   }
 
   // check that each index was found.
-  for (uint32_t i = 0; i < N; ++i)
+  for (size_t i = 0; i < N; ++i)
   {
     ASSERT_EQ(1, elementCount[i]);
   }
@@ -163,7 +142,7 @@ TEST_F(OctreeTest, Initialize)
   // octants have only real subsets of parents!
   std::queue<const Octant*> queue;
   queue.push(root);
-  std::vector<int32_t> assignment(N, -1);
+  std::vector<size_t> assignment(N, std::numeric_limits<size_t>::max());
 
   while (!queue.empty())
   {
@@ -175,18 +154,16 @@ TEST_F(OctreeTest, Initialize)
 
     // test if each point assigned to a octant really is inside the octant.
 
-    uint32_t idx = octant->start;
-    uint32_t lastIdx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    size_t lastIdx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
-      float x = points[idx].x - octant->x;
-      float y = points[idx].y - octant->y;
-      float z = points[idx].z - octant->z;
+      Eigen::Vector3d p = points.col(idx) - octant->center;
 
-      ASSERT_LE(std::abs(x), octant->extent);
-      ASSERT_LE(std::abs(y), octant->extent);
-      ASSERT_LE(std::abs(z), octant->extent);
-      assignment[idx] = -1;  // reset of child assignments.
+      ASSERT_LE(std::abs(p[0]), octant->extent);
+      ASSERT_LE(std::abs(p[1]), octant->extent);
+      ASSERT_LE(std::abs(p[2]), octant->extent);
+      assignment[idx] = std::numeric_limits<size_t>::max();  // reset of child assignments.
       lastIdx = idx;
       idx = successors[idx];
     }
@@ -195,9 +172,9 @@ TEST_F(OctreeTest, Initialize)
     bool shouldBeLeaf = true;
     Octant* firstchild = 0;
     Octant* lastchild = 0;
-    uint32_t pointSum = 0;
+    size_t pointSum = 0;
 
-    for (uint32_t c = 0; c < 8; ++c)
+    for (size_t c = 0; c < 8; ++c)
     {
       Octant* child = octant->child[c];
       if (child == 0) continue;
@@ -212,11 +189,11 @@ TEST_F(OctreeTest, Initialize)
 
       pointSum += child->size;
       lastchild = child;
-      uint32_t idx = child->start;
-      for (uint32_t i = 0; i < child->size; ++i)
+      size_t idx = child->start;
+      for (size_t i = 0; i < child->size; ++i)
       {
         // check if points are uniquely assigned to single child octant.
-        ASSERT_EQ(-1, assignment[idx]);
+        ASSERT_EQ(std::numeric_limits<size_t>::max(), assignment[idx]);
         assignment[idx] = c;
         idx = successors[idx];
       }
@@ -236,10 +213,10 @@ TEST_F(OctreeTest, Initialize)
     if (!octant->isLeaf)
     {
       ASSERT_EQ(octant->size, pointSum);
-      uint32_t idx = octant->start;
-      for (uint32_t i = 0; i < octant->size; ++i)
+      size_t idx = octant->start;
+      for (size_t i = 0; i < octant->size; ++i)
       {
-        ASSERT_GT(assignment[idx], -1);
+        ASSERT_LT(assignment[idx], std::numeric_limits<size_t>::max());
         idx = successors[idx];
       }
     }
@@ -249,19 +226,19 @@ TEST_F(OctreeTest, Initialize)
 TEST_F(OctreeTest, Initialize_minExtent)
 {
 
-  uint32_t N = 1000;
+  size_t N = 1000;
   unibn::OctreeParams params;
   params.bucketSize = 16;
   params.minExtent = 1.0f;
 
-  unibn::Octree<Point3f> oct;
+  unibn::Octree oct;
 
   const Octant* root = getRoot(oct);
-  const std::vector<uint32_t>& successors = getSuccessors(oct);
+  const std::vector<size_t>& successors = getSuccessors(oct);
 
   ASSERT_EQ(0, root);
 
-  std::vector<Point3f> points;
+  Eigen::Matrix3Xd points;
   randomPoints(points, N, 1337);
 
   oct.initialize(points, params);
@@ -272,9 +249,9 @@ TEST_F(OctreeTest, Initialize_minExtent)
   ASSERT_EQ(true, (root != 0));
   ASSERT_EQ(N, successors.size());
 
-  std::vector<uint32_t> elementCount(N, 0);
-  uint32_t idx = root->start;
-  for (uint32_t i = 0; i < N; ++i)
+  std::vector<size_t> elementCount(N, 0);
+  size_t idx = root->start;
+  for (size_t i = 0; i < N; ++i)
   {
     ASSERT_LT(idx, N);
     ASSERT_LE(successors[idx], N);
@@ -284,7 +261,7 @@ TEST_F(OctreeTest, Initialize_minExtent)
   }
 
   // check that each index was found.
-  for (uint32_t i = 0; i < N; ++i)
+  for (size_t i = 0; i < N; ++i)
   {
     ASSERT_EQ(1, elementCount[i]);
   }
@@ -293,7 +270,7 @@ TEST_F(OctreeTest, Initialize_minExtent)
   // octants have only real subsets of parents!
   std::queue<const Octant*> queue;
   queue.push(root);
-  std::vector<int32_t> assignment(N, -1);
+  std::vector<size_t> assignment(N, std::numeric_limits<size_t>::max());
 
   while (!queue.empty())
   {
@@ -305,18 +282,16 @@ TEST_F(OctreeTest, Initialize_minExtent)
 
     // test if each point assigned to a octant really is inside the octant.
 
-    uint32_t idx = octant->start;
-    uint32_t lastIdx = octant->start;
-    for (uint32_t i = 0; i < octant->size; ++i)
+    size_t idx = octant->start;
+    size_t lastIdx = octant->start;
+    for (size_t i = 0; i < octant->size; ++i)
     {
-      float x = points[idx].x - octant->x;
-      float y = points[idx].y - octant->y;
-      float z = points[idx].z - octant->z;
+      Eigen::Vector3d p = points.col(idx) - octant->center;
 
-      ASSERT_LE(std::abs(x), octant->extent);
-      ASSERT_LE(std::abs(y), octant->extent);
-      ASSERT_LE(std::abs(z), octant->extent);
-      assignment[idx] = -1;  // reset of child assignments.
+      ASSERT_LE(std::abs(p[0]), octant->extent);
+      ASSERT_LE(std::abs(p[1]), octant->extent);
+      ASSERT_LE(std::abs(p[2]), octant->extent);
+      assignment[idx] = std::numeric_limits<size_t>::max();  // reset of child assignments.
       lastIdx = idx;
       idx = successors[idx];
     }
@@ -325,9 +300,9 @@ TEST_F(OctreeTest, Initialize_minExtent)
     bool shouldBeLeaf = true;
     Octant* firstchild = 0;
     Octant* lastchild = 0;
-    uint32_t pointSum = 0;
+    size_t pointSum = 0;
 
-    for (uint32_t c = 0; c < 8; ++c)
+    for (size_t c = 0; c < 8; ++c)
     {
       Octant* child = octant->child[c];
       if (child == 0) continue;
@@ -342,11 +317,11 @@ TEST_F(OctreeTest, Initialize_minExtent)
 
       pointSum += child->size;
       lastchild = child;
-      uint32_t idx = child->start;
-      for (uint32_t i = 0; i < child->size; ++i)
+      size_t idx = child->start;
+      for (size_t i = 0; i < child->size; ++i)
       {
         // check if points are uniquely assigned to single child octant.
-        ASSERT_EQ(-1, assignment[idx]);
+        ASSERT_EQ(std::numeric_limits<size_t>::max(), assignment[idx]);
         assignment[idx] = c;
         idx = successors[idx];
       }
@@ -367,10 +342,10 @@ TEST_F(OctreeTest, Initialize_minExtent)
     if (!octant->isLeaf)
     {
       ASSERT_EQ(octant->size, pointSum);
-      uint32_t idx = octant->start;
-      for (uint32_t i = 0; i < octant->size; ++i)
+      size_t idx = octant->start;
+      for (size_t i = 0; i < octant->size; ++i)
       {
-        ASSERT_GT(assignment[idx], -1);
+        ASSERT_LT(assignment[idx], std::numeric_limits<size_t>::max());
         idx = successors[idx];
       }
     }
@@ -380,35 +355,40 @@ TEST_F(OctreeTest, Initialize_minExtent)
 TEST_F(OctreeTest, FindNeighbor)
 {
   // compare with bruteforce search.
-  uint32_t N = 1000;
+  size_t N = 1000;
 
   boost::mt11213b mtwister(1234);
   boost::uniform_int<> uni_dist(0, N - 1);
 
-  std::vector<Point3f> points;
+  Eigen::Matrix3Xd points;
   randomPoints(points, N, 1234);
 
-  NaiveNeighborSearch<Point3f> bruteforce;
+  NaiveNeighborSearch bruteforce;
   bruteforce.initialize(points);
-  unibn::Octree<Point3f> octree;
+  unibn::Octree octree;
   octree.initialize(points);
 
-  for (uint32_t i = 0; i < 10; ++i)
+  for (size_t i = 0; i < 10; ++i)
   {
-    uint32_t index = uni_dist(mtwister);
-    const Point3f& query = points[index];
+    size_t index = uni_dist(mtwister);
+    const Eigen::Vector3d& query = points.col(index);
 
     // allow self-match
-    ASSERT_EQ(index, bruteforce.findNeighbor<unibn::L2Distance<Point3f> >(query));
-    ASSERT_EQ(bruteforce.findNeighbor<unibn::L2Distance<Point3f> >(query),
-              octree.findNeighbor<unibn::L2Distance<Point3f> >(query));
+    size_t brute_result;
+    bruteforce.findNeighbor<unibn::L2Distance>(query, brute_result);
+    ASSERT_EQ(index, brute_result);
+
+    size_t octree_result;
+    octree.findNeighbor<unibn::L2Distance>(query, octree_result);
+    ASSERT_EQ(brute_result, octree_result);
 
     // disallow self-match
-    uint32_t bfneighbor = bruteforce.findNeighbor<unibn::L2Distance<Point3f> >(query, 0.0f);
-    uint32_t octneighbor = octree.findNeighbor<unibn::L2Distance<Point3f> >(query, 0.0f);
+    size_t bfneighbor;
+    bruteforce.findNeighbor<unibn::L2Distance>(query, bfneighbor, 0.3);
+    size_t octneighbor;
+    octree.findNeighbor<unibn::L2Distance>(query, octneighbor, 0.3);
 
-    ASSERT_EQ(bruteforce.findNeighbor<unibn::L2Distance<Point3f> >(query, 0.3f),
-              octree.findNeighbor<unibn::L2Distance<Point3f> >(query, 0.3f));
+    ASSERT_EQ(bfneighbor, octneighbor);
   }
 }
 
@@ -444,41 +424,41 @@ bool similarVectors(std::vector<T>& vec1, std::vector<T>& vec2)
 
 TEST_F(OctreeTest, RadiusNeighbors)
 {
-  uint32_t N = 1000;
+  size_t N = 1000;
 
   boost::mt11213b mtwister(1234);
   boost::uniform_int<> uni_dist(0, N - 1);
 
-  std::vector<Point3f> points;
+  Eigen::Matrix3Xd points;
   randomPoints(points, N, 1234);
 
-  NaiveNeighborSearch<Point3f> bruteforce;
+  NaiveNeighborSearch bruteforce;
   bruteforce.initialize(points);
-  unibn::Octree<Point3f> octree;
+  unibn::Octree octree;
   octree.initialize(points);
 
-  float radii[4] = {0.5, 1.0, 2.0, 5.0};
+  double radii[4] = {0.5, 1.0, 2.0, 5.0};
 
-  for (uint32_t r = 0; r < 4; ++r)
+  for (size_t r = 0; r < 4; ++r)
   {
-    for (uint32_t i = 0; i < 10; ++i)
+    for (size_t i = 0; i < 10; ++i)
     {
-      std::vector<uint32_t> neighborsBruteforce;
-      std::vector<uint32_t> neighborsOctree;
+      std::vector<size_t> neighborsBruteforce;
+      std::vector<size_t> neighborsOctree;
 
-      const Point3f& query = points[uni_dist(mtwister)];
+      const Eigen::Vector3d& query = points.col(uni_dist(mtwister));
 
-      bruteforce.radiusNeighbors<unibn::L2Distance<Point3f> >(query, radii[r], neighborsBruteforce);
-      octree.radiusNeighbors<unibn::L2Distance<Point3f> >(query, radii[r], neighborsOctree);
+      bruteforce.radiusNeighbors<unibn::L2Distance>(query, radii[r], neighborsBruteforce);
+      octree.radiusNeighbors<unibn::L2Distance>(query, radii[r], neighborsOctree);
       ASSERT_EQ(true, similarVectors(neighborsBruteforce, neighborsOctree));
 
-      bruteforce.radiusNeighbors<unibn::L1Distance<Point3f> >(query, radii[r], neighborsBruteforce);
-      octree.radiusNeighbors<unibn::L1Distance<Point3f> >(query, radii[r], neighborsOctree);
+      bruteforce.radiusNeighbors<unibn::L1Distance>(query, radii[r], neighborsBruteforce);
+      octree.radiusNeighbors<unibn::L1Distance>(query, radii[r], neighborsOctree);
 
       ASSERT_EQ(true, similarVectors(neighborsBruteforce, neighborsOctree));
 
-      bruteforce.radiusNeighbors<unibn::MaxDistance<Point3f> >(query, radii[r], neighborsBruteforce);
-      octree.radiusNeighbors<unibn::MaxDistance<Point3f> >(query, radii[r], neighborsOctree);
+      bruteforce.radiusNeighbors<unibn::MaxDistance>(query, radii[r], neighborsBruteforce);
+      octree.radiusNeighbors<unibn::MaxDistance>(query, radii[r], neighborsOctree);
 
       ASSERT_EQ(true, similarVectors(neighborsBruteforce, neighborsOctree));
     }
@@ -489,70 +469,66 @@ TEST_F(OctreeTest, OverlapTest)
 {
   Octant octant;
 
-  octant.x = 1.0f;
-  octant.y = 1.0f;
-  octant.z = 1.0f;
-  octant.extent = 0.5f;
+  octant.center = Eigen::Vector3d(1.0, 1.0, 1.0);
+  octant.extent = 0.5;
 
   // completely inside
-  Point3f query(1.25, 1.25, 0.5);
-  float radius = 1.0f;
+  Eigen::Vector3d query(1.25, 1.25, 0.5);
+  double radius = 1.0;
 
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
   // faces of octant.
-  query = Point3f(1.75, 1.0, 1.0);
-  radius = 0.5f;
+  query = Eigen::Vector3d(1.75, 1.0, 1.0);
+  radius = 0.5;
 
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.0, 1.75, 1.0);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.0, 1.75, 1.0);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.0, 1.0, 1.75);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.0, 1.0, 1.75);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.0, 1.0, 2.75);
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.0, 1.0, 2.75);
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
   // Edge cases:
-  query = Point3f(1.65, 1.65, 1.25);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.65, 1.65, 1.25);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.25, 1.65, 1.65);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.25, 1.65, 1.65);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.65, 1.25, 1.75);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.65, 1.25, 1.75);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.9, 1.25, 1.9);
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.9, 1.25, 1.9);
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.25, 1.9, 1.9);
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.25, 1.9, 1.9);
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.9, 1.9, 1.25);
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.9, 1.9, 1.25);
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
   // corner cases:
-  query = Point3f(1.65, 1.65, 1.65);
-  ASSERT_TRUE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.65, 1.65, 1.65);
+  ASSERT_TRUE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
-  query = Point3f(1.95, 1.95, 1.95);
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  query = Eigen::Vector3d(1.95, 1.95, 1.95);
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 
   // edge special case, see Issue #3 -- Edge
-  octant.x = 0.025;
-  octant.y = -0.025;
-  octant.z = -0.025;
+  octant.center = Eigen::Vector3d(0.025, -0.025, -0.025);
   octant.extent = 0.025;
 
-  query = Point3f(0.025, 0.025, 0.025);
+  query = Eigen::Vector3d(0.025, 0.025, 0.025);
   radius = 0.025;
 
-  ASSERT_FALSE(overlaps<unibn::L2Distance<Point3f> >(query, radius, radius * radius, &octant));
+  ASSERT_FALSE(overlaps<unibn::L2Distance>(query, radius, radius * radius, &octant));
 }
-}
+}  // namespace
 
 int main(int argc, char** argv)
 {
