@@ -12,7 +12,7 @@ namespace
 class NaiveNeighborSearch
 {
  public:
-  void initialize(const Eigen::Matrix3Xd& points)
+  void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& points)
   {
     data_ = points;
   }
@@ -20,14 +20,14 @@ class NaiveNeighborSearch
   template <typename Distance>
   bool findNeighbor(const Eigen::Vector3d& query, size_t& resultIndex, double minDistance = -1.0)
   {
-    if (data_.cols() == 0) return false;
+    if (data_->cols() == 0) return false;
 
     double maxDistance = std::numeric_limits<double>::infinity();
     double sqrMinDistance = (minDistance < 0) ? minDistance : Distance::sqr(minDistance);
     resultIndex = std::numeric_limits<size_t>::max();
-    for (size_t i = 0; i < data_.cols(); ++i)
+    for (size_t i = 0; i < data_->cols(); ++i)
     {
-      double dist = Distance::compute(query, data_.col(i));
+      double dist = Distance::compute(query, data_->col(i));
       if ((dist > sqrMinDistance) && (dist < maxDistance))
       {
         maxDistance = dist;
@@ -44,9 +44,9 @@ class NaiveNeighborSearch
     resultIndices.clear();
     double sqrRadius = Distance::sqr(radius);
 
-    for (size_t i = 0; i < data_.cols(); ++i)
+    for (size_t i = 0; i < data_->cols(); ++i)
     {
-      if (Distance::compute(query, data_.col(i)) < sqrRadius)
+      if (Distance::compute(query, data_->col(i)) < sqrRadius)
       {
         resultIndices.push_back(i);
       }
@@ -54,7 +54,7 @@ class NaiveNeighborSearch
   }
 
  protected:
-  Eigen::Matrix3Xd data_;
+  std::shared_ptr<Eigen::Matrix3Xd> data_;
 };
 
 // The fixture for testing class Foo.
@@ -110,8 +110,8 @@ TEST_F(OctreeTest, Initialize)
 
   ASSERT_EQ(0, root);
 
-  Eigen::Matrix3Xd points;
-  randomPoints(points, N, 1337);
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  randomPoints(*points, N, 1337);
 
   oct.initialize(points, params);
 
@@ -158,7 +158,7 @@ TEST_F(OctreeTest, Initialize)
     size_t lastIdx = octant->start;
     for (size_t i = 0; i < octant->size; ++i)
     {
-      Eigen::Vector3d p = points.col(idx) - octant->center;
+      Eigen::Vector3d p = points->col(idx) - octant->center;
 
       ASSERT_LE(std::abs(p[0]), octant->extent);
       ASSERT_LE(std::abs(p[1]), octant->extent);
@@ -238,8 +238,8 @@ TEST_F(OctreeTest, Initialize_minExtent)
 
   ASSERT_EQ(0, root);
 
-  Eigen::Matrix3Xd points;
-  randomPoints(points, N, 1337);
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  randomPoints(*points, N, 1337);
 
   oct.initialize(points, params);
 
@@ -286,7 +286,7 @@ TEST_F(OctreeTest, Initialize_minExtent)
     size_t lastIdx = octant->start;
     for (size_t i = 0; i < octant->size; ++i)
     {
-      Eigen::Vector3d p = points.col(idx) - octant->center;
+      Eigen::Vector3d p = points->col(idx) - octant->center;
 
       ASSERT_LE(std::abs(p[0]), octant->extent);
       ASSERT_LE(std::abs(p[1]), octant->extent);
@@ -360,8 +360,8 @@ TEST_F(OctreeTest, FindNeighbor)
   boost::mt11213b mtwister(1234);
   boost::uniform_int<> uni_dist(0, N - 1);
 
-  Eigen::Matrix3Xd points;
-  randomPoints(points, N, 1234);
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  randomPoints(*points, N, 1234);
 
   NaiveNeighborSearch bruteforce;
   bruteforce.initialize(points);
@@ -371,7 +371,7 @@ TEST_F(OctreeTest, FindNeighbor)
   for (size_t i = 0; i < 10; ++i)
   {
     size_t index = uni_dist(mtwister);
-    const Eigen::Vector3d& query = points.col(index);
+    const Eigen::Vector3d& query = points->col(index);
 
     // allow self-match
     size_t brute_result;
@@ -429,8 +429,8 @@ TEST_F(OctreeTest, RadiusNeighbors)
   boost::mt11213b mtwister(1234);
   boost::uniform_int<> uni_dist(0, N - 1);
 
-  Eigen::Matrix3Xd points;
-  randomPoints(points, N, 1234);
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  randomPoints(*points, N, 1234);
 
   NaiveNeighborSearch bruteforce;
   bruteforce.initialize(points);
@@ -446,7 +446,7 @@ TEST_F(OctreeTest, RadiusNeighbors)
       std::vector<size_t> neighborsBruteforce;
       std::vector<size_t> neighborsOctree;
 
-      const Eigen::Vector3d& query = points.col(uni_dist(mtwister));
+      const Eigen::Vector3d& query = points->col(uni_dist(mtwister));
 
       bruteforce.radiusNeighbors<unibn::L2Distance>(query, radii[r], neighborsBruteforce);
       octree.radiusNeighbors<unibn::L2Distance>(query, radii[r], neighborsOctree);

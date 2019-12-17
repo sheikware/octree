@@ -19,10 +19,10 @@ int main(int argc, char** argv)
   }
   std::string filename = argv[1];
 
-  Eigen::Matrix3Xd points;
-  readPoints(filename, points);
-  std::cout << "Read " << points.cols() << " points." << std::endl;
-  if (points.cols() == 0)
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  readPoints(filename, *points);
+  std::cout << "Read " << points->cols() << " points." << std::endl;
+  if (points->cols() == 0)
   {
     std::cerr << "Empty point cloud." << std::endl;
     return -1;
@@ -37,22 +37,22 @@ int main(int argc, char** argv)
 
   // radiusNeighbors returns indexes to neighboring points.
   std::vector<size_t> results;
-  const Eigen::Vector3d& q = points.col(0);
+  const Eigen::Vector3d& q = points->col(0);
   octree.radiusNeighbors<unibn::L2Distance>(q, 0.2f, results);
   std::cout << results.size() << " radius neighbors (r = 0.2m) found for (" << q[0] << ", " << q[1] << "," << q[2] << ")"
             << std::endl;
   for (size_t i = 0; i < results.size(); ++i)
   {
-    const Eigen::Vector3d& p = points.col(results[i]);
+    const Eigen::Vector3d& p = points->col(results[i]);
     std::cout << "  " << results[i] << ": (" << p[0] << ", " << p[1] << ", " << p[2] << ") => "
               << std::sqrt(unibn::L2Distance::compute(p, q)) << std::endl;
   }
 
   // performing queries for each point in point cloud
   begin = clock();
-  for (size_t i = 0; i < points.cols(); ++i)
+  for (size_t i = 0; i < points->cols(); ++i)
   {
-    octree.radiusNeighbors<unibn::L2Distance>(points.col(i), 0.5f, results);
+    octree.radiusNeighbors<unibn::L2Distance>(points->col(i), 0.5f, results);
   }
   end = clock();
   double search_time = ((double)(end - begin) / CLOCKS_PER_SEC);

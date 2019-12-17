@@ -48,10 +48,10 @@ int main(int argc, char** argv)
   }
   std::string filename = argv[1];
 
-  Eigen::Matrix3Xd points;
-  readPoints(filename, points);
-  std::cout << "Read " << points.size() << " points." << std::endl;
-  if (points.size() == 0)
+  std::shared_ptr<Eigen::Matrix3Xd> points(new Eigen::Matrix3Xd);
+  readPoints(filename, *points);
+  std::cout << "Read " << points->cols() << " points." << std::endl;
+  if (points->cols() == 0)
   {
     std::cerr << "Empty point cloud." << std::endl;
     return -1;
@@ -68,9 +68,9 @@ int main(int argc, char** argv)
   std::vector<double> values(desc.dim());
   // performing descriptor computations for each point in point cloud
   begin = clock();
-  for (size_t i = 0; i < points.size(); ++i)
+  for (size_t i = 0; i < points->cols(); ++i)
   {
-    desc.compute(points.col(i), points, octree, values);
+    desc.compute(points->col(i), *points, octree, values);
   }
   end = clock();
   double search_time = ((double)(end - begin) / CLOCKS_PER_SEC);

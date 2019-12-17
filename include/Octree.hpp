@@ -29,6 +29,7 @@
 #include <vector>
 #include <numeric>
 #include <Eigen/Core>
+#include <memory>
 
 // needed for gtest access to protected/private members ...
 namespace
@@ -168,10 +169,10 @@ class Octree
   ~Octree();
 
   /** \brief initialize octree with all points **/
-  void initialize(const Eigen::Matrix3Xd& pts, const OctreeParams& params = OctreeParams());
+  void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const OctreeParams& params = OctreeParams());
 
   /** \brief initialize octree only from pts that are inside indexes. **/
-  void initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& indexes,
+  void initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const std::vector<size_t>& indexes,
                   const OctreeParams& params = OctreeParams());
 
   /** \brief remove all data inside the octree. **/
@@ -281,7 +282,7 @@ class Octree
 
   OctreeParams params_;
   Octant* root_;
-  Eigen::Matrix3Xd data_;
+  std::shared_ptr<Eigen::Matrix3Xd> data_;
 
   std::vector<size_t> successors_;  // single connected list of next point indices...
 
@@ -309,20 +310,29 @@ Octree::~Octree()
   delete root_;
 }
 
-void Octree::initialize(const Eigen::Matrix3Xd& pts, const OctreeParams& params)
+void Octree::initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const OctreeParams& params)
 {
   clear();
   params_ = params;
 
-  data_ = pts;
+  if (params.copyPoints)
+  {
+    data_ = std::shared_ptr<Eigen::Matrix3Xd>(new Eigen::Matrix3Xd());
+    *data_ = *pts;
+  }
+  else
+  {
+    data_ = pts;
+  }
+  
 
-  const size_t N = pts.cols();
+  const size_t N = pts->cols();
   successors_ = std::vector<size_t>(N);
   std::iota(successors_.begin(), successors_.end(), 1.0);
   
   // determine axis-aligned bounding box.
-  Eigen::Vector3d aabb_min = data_.rowwise().minCoeff();
-  Eigen::Vector3d aabb_max = data_.rowwise().maxCoeff();
+  Eigen::Vector3d aabb_min = data_->rowwise().minCoeff();
+  Eigen::Vector3d aabb_max = data_->rowwise().maxCoeff();
 
   Eigen::Vector3d aabb_range = (aabb_max - aabb_min) * 0.5;
   Eigen::Vector3d aabb_center = (aabb_max + aabb_min) * 0.5;
@@ -330,15 +340,23 @@ void Octree::initialize(const Eigen::Matrix3Xd& pts, const OctreeParams& params)
   root_ = createOctant(aabb_center, aabb_range.maxCoeff(), 0, N - 1, N);
 }
 
-void Octree::initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& indexes,
+void Octree::initialize(const std::shared_ptr<Eigen::Matrix3Xd>& pts, const std::vector<size_t>& indexes,
                                             const OctreeParams& params)
 {
   clear();
   params_ = params;
 
-  data_ = pts;
+  if (params.copyPoints)
+  {
+    data_ = std::shared_ptr<Eigen::Matrix3Xd>(new Eigen::Matrix3Xd());
+    *data_ = *pts;
+  }
+  else
+  {
+    data_ = pts;
+  }
 
-  const size_t N = pts.cols();
+  const size_t N = data_->cols();
   successors_ = std::vector<size_t>(N);
 
   if (indexes.size() == 0) return;
@@ -348,9 +366,9 @@ void Octree::initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& 
   Eigen::Vector3d aabb_min;
   Eigen::Vector3d aabb_max;
 
-  aabb_min[0] = data_.col(lastIdx)[0];
-  aabb_min[1] = data_.col(lastIdx)[1];
-  aabb_min[2] = data_.col(lastIdx)[2];
+  aabb_min[0] = data_->col(lastIdx)[0];
+  aabb_min[1] = data_->col(lastIdx)[1];
+  aabb_min[2] = data_->col(lastIdx)[2];
   aabb_max = aabb_min;
 
   for (size_t i = 1; i < indexes.size(); ++i)
@@ -359,7 +377,7 @@ void Octree::initialize(const Eigen::Matrix3Xd& pts, const std::vector<size_t>& 
     // initially each element links simply to the following element.
     successors_[lastIdx] = idx;
 
-    const Eigen::Vector3d& p = data_.col(idx);
+    const Eigen::Vector3d& p = data_->col(idx);
 
     if (p[0] < aabb_min[0]) aabb_min[0] = p[0];
     if (p[1] < aabb_min[1]) aabb_min[1] = p[1];
@@ -381,7 +399,7 @@ void Octree::clear()
 {
   delete root_;
   root_ = 0;
-  data_.resize(3, 0);
+  data_.reset();
   successors_.clear();
 }
 
@@ -417,7 +435,7 @@ typename Octree::Octant* Octree::createOctant(const Eigen::Vector3d& center,
 
     for (size_t i = 0; i < size; ++i)
     {
-      const Eigen::Vector3d& p = data_.col(idx);
+      const Eigen::Vector3d& p = data_->col(idx);
 
       // determine Morton code for each point...
       size_t mortonCode = 0;
@@ -488,7 +506,7 @@ void Octree::radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query,
     size_t idx = octant->start;
     for (size_t i = 0; i < octant->size; ++i)
     {
-      const Eigen::Vector3d& p = data_.col(idx);
+      const Eigen::Vector3d& p = data_->col(idx);
       double dist = Distance::compute(query, p);
       if (dist < sqrRadius) resultIndices.push_back(idx);
       idx = successors_[idx];
@@ -518,7 +536,7 @@ void Octree::radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query,
     for (size_t i = 0; i < octant->size; ++i)
     {
       resultIndices.push_back(idx);
-      distances.push_back(Distance::compute(query, data_.col(idx)));
+      distances.push_back(Distance::compute(query, data_->col(idx)));
       idx = successors_[idx];
     }
 
@@ -530,7 +548,7 @@ void Octree::radiusNeighbors(const Octant* octant, const Eigen::Vector3d& query,
     size_t idx = octant->start;
     for (size_t i = 0; i < octant->size; ++i)
     {
-      const Eigen::Vector3d& p = data_.col(idx);
+      const Eigen::Vector3d& p = data_->col(idx);
       double dist = Distance::compute(query, p);
       if (dist < sqrRadius)
       {
@@ -634,7 +652,7 @@ bool Octree::findNeighbor(const Octant* octant, const Eigen::Vector3d& query, do
 
     for (size_t i = 0; i < octant->size; ++i)
     {
-      const Eigen::Vector3d& p = data_.col(idx);
+      const Eigen::Vector3d& p = data_->col(idx);
       double dist = Distance::compute(query, p);
       if (dist > sqrMinDistance && dist < sqrMaxDistance)
       {
