@@ -12,6 +12,7 @@ IF(GTEST_FOUND)
       ${GTEST_MAIN_LIBRARIES}
       octree
       Boost::boost
+      pthread
       )
 	ADD_TEST(octree-test octree-test)
 ENDIF()
